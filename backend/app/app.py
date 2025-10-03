@@ -6,30 +6,25 @@ from typing import Literal
 
 import uvicorn
 from fastapi import APIRouter, FastAPI
-from pydantic import BaseSettings, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.db.db import DBContext
-from backend.repositories.user import UserRepository
+from backend.engines import db
+from backend.repositories import user as user_repo
 from backend.routers.auth import create_auth_router
-from backend.services.auth import AuthService
+from backend.services import auth as auth_svc
 
 
 class Config(BaseSettings):
-    """
-    Конфигурация приложения и базы данных.
-    """
-
-    APP_NAME: str = Field(default="FastAPI App", description="Название приложения")
-    APP_DESCRIPTION: str = Field(default="ИИ-агент для поиска вакансий на hh.ru", description="Описание приложения")
-    DEBUG: bool = Field(default=False, description="Флаг отладки")
-    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
-        default="INFO", description="Уровень логирования"
-    )
-    HOST: str = Field(default="127.0.0.1", description="Хост для запуска сервера")
-    PORT: int = Field(default=8000, description="Порт для запуска сервера")
-    API_VERSION: str = Field(default="/api/v1", description="Версия API с префиксом")
-    WORKERS: int = Field(default=1, ge=1, description="Количество воркеров Uvicorn")
+    APP_NAME: str = Field(default="FastAPI App")
+    APP_DESCRIPTION: str = Field(default="ИИ-агент для поиска вакансий на hh.ru")
+    DEBUG: bool = Field(default=False)
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
+    HOST: str = Field(default="127.0.0.1")
+    PORT: int = Field(default=8000)
+    API_VERSION: str = Field(default="/api/v1")
+    WORKERS: int = Field(default=1, ge=1)
     POSTGRES_HOST: str = Field(default="localhost")
     POSTGRES_PORT: int = Field(default=5432)
     POSTGRES_DB: str = Field(default="ai_job_agent")
@@ -37,122 +32,114 @@ class Config(BaseSettings):
     POSTGRES_PASSWORD: str = Field(default="ai_job_agent_password")
     POSTGRES_POOL_SIZE: int = Field(default=10, ge=1)
     POSTGRES_IDLE_CONNECTIONS: int = Field(default=2, ge=0)
-    HH_API_KEY: str
-    CHATGPT_API_KEY: str
-    JWT_SECRET: str
-    JWT_ALGORITHM: str = Field(default="HS256", description="Алгоритм JWT")
-    JWT_EXPIRES_MINUTES: int = Field(default=1440, description="Время жизни JWT в минутах")
+    DOCKER_POSTGRES_HOST: str = Field(default="postgres")
+    HH_API_KEY: str = Field(default="fake_hh_api_key")
+    CHATGPT_API_KEY: str = Field(default="fake_chatgpt_api_key")
+    JWT_SECRET: str = Field(default="secret_jwt")
+    JWT_ALGORITHM: str = Field(default="HS256")
+    JWT_EXPIRES_MINUTES: int = Field(default=1440)
+
+    model_config = SettingsConfigDict(
+        env_file=".env",  # default, can be overridden dynamically
+        env_file_encoding="utf-8",
+    )
 
     @property
     def DATABASE_DSN(self) -> str:
         return (
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            f"@{self.DOCKER_POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
 
-class App:
-    """
-    Класс-обертка для FastAPI приложения с методами, возвращающими None.
-    """
+def parse_env_file_arg() -> argparse.Namespace:
+    """Разбирает аргументы командной строки и возвращает путь к env-файлу."""
+    parser = argparse.ArgumentParser(description="FastAPI App")
+    parser.add_argument("--env-file", type=str, default=".env")
+    return parser.parse_args()
 
-    def __init__(self):
-        self.config: Config | None = None
-        self.app: FastAPI | None = None
-        self.env_file: str = ".env"
 
-    def parse_args(self) -> None:
-        """
-        Разбор аргументов командной строки для указания .env файла.
-        """
-        parser = argparse.ArgumentParser(description="FastAPI App с конфигом")
-        parser.add_argument("--env-file", type=str, default=".env")
-        args = parser.parse_args()
-        self.env_file = args.env_file
+def load_config_from_env_file(env_file: str) -> Config:
+    """Загружает конфигурацию приложения из указанного файла окружения."""
+    if not Path(env_file).exists():
+        raise FileNotFoundError(f"Файл '{env_file}' не найден")
 
-    def parse_config(self) -> None:
-        """
-        Создание объекта конфигурации из .env файла.
-        """
-        if not Path(self.env_file).exists():
-            raise FileNotFoundError(f"Файл '{self.env_file}' не найден")
-        self.config = Config(_env_file=self.env_file)
-
-    def configure_logging(self) -> None:
-        """
-        Настройка логирования согласно конфигурации.
-        """
-        if self.config is None:
-            raise RuntimeError("Конфигурация не загружена. Вызовите parse_config() сначала.")
-
-        numeric_level = getattr(logging, self.config.LOG_LEVEL.upper(), None)
-        if not isinstance(numeric_level, int):
-            raise ValueError(f"Неверный уровень логирования: {self.config.LOG_LEVEL}")
-        logging.basicConfig(
-            level=numeric_level,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    # Pydantic v2: временно переопределяем env_file через SettingsConfigDict
+    class TempConfig(Config):
+        model_config = SettingsConfigDict(
+            env_file=env_file,
+            env_file_encoding="utf-8",
         )
 
-    def create_app(self) -> None:
-        """
-        Создание экземпляра FastAPI с базой данных, сервисами и роутерами.
-        """
-        if self.config is None:
-            raise RuntimeError("Конфигурация не загружена. Вызовите parse_config() сначала.")
+    return TempConfig()
 
-        async_engine = create_async_engine(
-            self.config.DATABASE_DSN,
-            echo=True,
-            pool_size=self.config.POSTGRES_POOL_SIZE,
-            max_overflow=self.config.POSTGRES_IDLE_CONNECTIONS,
-            pool_pre_ping=True,
-        )
 
-        async_session_factory = async_sessionmaker(
-            bind=async_engine,
-            expire_on_commit=False,
-            class_=AsyncSession,
-        )
+def configure_logging(cfg: Config) -> None:
+    """Настраивает систему логирования."""
+    numeric_level = getattr(logging, cfg.LOG_LEVEL.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"Неверный уровень логирования: {cfg.LOG_LEVEL}")
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
-        db_context = DBContext(async_session_factory=async_session_factory)
-        user_repository = UserRepository(db_context=db_context)
-        auth_service = AuthService(
-            user_repo=user_repository,
-            jwt_secret=self.config.JWT_SECRET,
-            jwt_algorithm=self.config.JWT_ALGORITHM,
-            jwt_expires_minutes=self.config.JWT_EXPIRES_MINUTES,
-        )
 
-        auth_router = create_auth_router(auth_service)
+def create_app(cfg: Config) -> FastAPI:
+    """Фабрика приложения FastAPI."""
+    db.engine = create_async_engine(
+        cfg.DATABASE_DSN,
+        future=True,
+        pool_size=cfg.POSTGRES_POOL_SIZE,
+        max_overflow=cfg.POSTGRES_IDLE_CONNECTIONS,
+        echo=cfg.DEBUG,
+    )
+    db.session_factory = async_sessionmaker(
+        db.engine,
+        expire_on_commit=False,
+        class_=AsyncSession,
+    )
 
-        @asynccontextmanager
-        async def lifespan(app: FastAPI):
-            yield
-            await async_engine.dispose()
+    db.db_context = db.DBContext(session_factory=db.session_factory)
 
-        self.app = FastAPI(
-            title=self.config.APP_NAME,
-            description=self.config.APP_DESCRIPTION,
-            debug=self.config.DEBUG,
-            lifespan=lifespan,
-        )
+    user_repo.user_repository = user_repo.UserRepository(db_context=db.db_context)
 
-        router = APIRouter(prefix=self.config.API_VERSION)
-        router.include_router(auth_router)
-        self.app.include_router(router)
+    auth_svc.auth_service = auth_svc.AuthService(
+        user_repo=user_repo.user_repository,
+        jwt_secret=cfg.JWT_SECRET,
+        jwt_algorithm=cfg.JWT_ALGORITHM,
+        jwt_expires_minutes=cfg.JWT_EXPIRES_MINUTES,
+    )
 
-    def run_uvicorn(self) -> None:
-        """
-        Запуск приложения через Uvicorn.
-        """
-        if self.app is None or self.config is None:
-            raise RuntimeError("Приложение не готово. Вызовите parse_config() и create_app() сначала.")
+    auth_router = create_auth_router(svc=auth_svc.auth_service, transaction=db.db_context.transaction)
 
-        uvicorn.run(
-            self.app,
-            host=self.config.HOST,
-            port=self.config.PORT,
-            log_level=self.config.LOG_LEVEL.lower(),
-            reload=self.config.DEBUG and self.config.WORKERS == 1,
-            workers=self.config.WORKERS,
-        )
+    api_router = APIRouter(prefix=cfg.API_VERSION)
+    api_router.include_router(auth_router)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):  # type: ignore
+        yield
+        if db.engine:
+            await db.engine.dispose()
+
+    app = FastAPI(
+        title=cfg.APP_NAME,
+        description=cfg.APP_DESCRIPTION,
+        debug=cfg.DEBUG,
+        lifespan=lifespan,
+    )
+    app.include_router(api_router)
+
+    return app
+
+
+def run_uvicorn(app: FastAPI, cfg: Config) -> None:
+    """Запускает сервер Uvicorn с приложением FastAPI."""
+    uvicorn.run(
+        app,
+        host=cfg.HOST,
+        port=cfg.PORT,
+        log_level=cfg.LOG_LEVEL.lower(),
+        reload=cfg.DEBUG and cfg.WORKERS == 1,
+        workers=cfg.WORKERS,
+    )
