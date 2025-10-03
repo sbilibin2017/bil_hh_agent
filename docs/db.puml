@@ -1,0 +1,54 @@
+@startuml
+' Горизонтальная ориентация
+left to right direction
+
+' Сделать все линии ортогональными
+skinparam linetype ortho
+
+' Define the database
+!define table(x) class x << (T,#FFAAAA) >>
+!define primary_key(x) <b>x</b>
+
+' Центральные таблицы
+table(users) {
+    primary_key(user_uuid) : UUID
+    name : VARCHAR(255)
+    email : VARCHAR(255)
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+table(vacancies) {
+    primary_key(vacancy_uuid) : UUID
+    title : VARCHAR(255)
+    description : TEXT
+    url : VARCHAR(500)
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+' Связанные таблицы
+table(user_profiles) {
+    primary_key(user_profile_uuid) : UUID
+    user_uuid : UUID
+    experience : TEXT
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+table(responses) {
+    primary_key(response_uuid) : UUID
+    user_uuid : UUID
+    vacancy_uuid : UUID
+    cover_letter : TEXT
+    status : VARCHAR(50)
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+' Размещение таблиц: центральные в середине, связанные сверху/снизу
+users -down-|> user_profiles : has
+users -right-|> responses : makes
+vacancies -left-|> responses : receives
+
+@enduml
