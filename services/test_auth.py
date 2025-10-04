@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import bcrypt
@@ -7,13 +7,13 @@ import jwt
 import pytest
 from fastapi import HTTPException, status
 
-from backend.schemas.auth import (
+from schemas.auth import (
     LoginRequest,
     LoginResponse,
     RegisterRequest,
     RegisterResponse,
 )
-from backend.services.auth import AuthService
+from services.auth import AuthService
 
 
 @pytest.mark.asyncio

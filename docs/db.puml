@@ -12,7 +12,8 @@ skinparam linetype ortho
 ' Центральные таблицы
 table(users) {
     primary_key(user_uuid) : UUID
-    name : VARCHAR(255)
+    username : VARCHAR(255)
+    password_hash : VARCHAR(255)
     email : VARCHAR(255)
     created_at : TIMESTAMP
     updated_at : TIMESTAMP
@@ -46,9 +47,19 @@ table(responses) {
     updated_at : TIMESTAMP
 }
 
-' Размещение таблиц: центральные в середине, связанные сверху/снизу
+table(hh_tokens) {
+    primary_key(hh_token_uuid) : UUID
+    user_uuid : UUID
+    hh_access_token : VARCHAR(500)
+    expires_at : TIMESTAMP
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+' Связи
 users -down-|> user_profiles : has
 users -right-|> responses : makes
 vacancies -left-|> responses : receives
+users -up-|> hh_tokens : owns
 
 @enduml

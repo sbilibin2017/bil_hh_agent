@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.engines.db import DBContext
-from backend.repositories import user
-from backend.repositories.models.user import UserDB
+from engines.db import DBContext
+from repositories import user
+from repositories.models.user import UserDB
 
 
 @pytest.mark.asyncio

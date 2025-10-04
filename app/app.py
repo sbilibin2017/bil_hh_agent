@@ -10,10 +10,13 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.engines import db
-from backend.repositories import user as user_repo
-from backend.routers.auth import create_auth_router
-from backend.services import auth as auth_svc
+from engines import db
+from middlewares.logging import LoggingMiddleware
+from repositories import user as user_repo
+from routers.auth import create_auth_router
+from services import auth as auth_svc
+
+logger = logging.getLogger(__name__)
 
 
 class Config(BaseSettings):
@@ -32,7 +35,6 @@ class Config(BaseSettings):
     POSTGRES_PASSWORD: str = Field(default="ai_job_agent_password")
     POSTGRES_POOL_SIZE: int = Field(default=10, ge=1)
     POSTGRES_IDLE_CONNECTIONS: int = Field(default=2, ge=0)
-    DOCKER_POSTGRES_HOST: str = Field(default="postgres")
     HH_API_KEY: str = Field(default="fake_hh_api_key")
     CHATGPT_API_KEY: str = Field(default="fake_chatgpt_api_key")
     JWT_SECRET: str = Field(default="secret_jwt")
@@ -40,7 +42,7 @@ class Config(BaseSettings):
     JWT_EXPIRES_MINUTES: int = Field(default=1440)
 
     model_config = SettingsConfigDict(
-        env_file=".env",  # default, can be overridden dynamically
+        env_file=".env",
         env_file_encoding="utf-8",
     )
 
@@ -48,7 +50,7 @@ class Config(BaseSettings):
     def DATABASE_DSN(self) -> str:
         return (
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.DOCKER_POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
 
@@ -56,22 +58,26 @@ def parse_env_file_arg() -> argparse.Namespace:
     """Разбирает аргументы командной строки и возвращает путь к env-файлу."""
     parser = argparse.ArgumentParser(description="FastAPI App")
     parser.add_argument("--env-file", type=str, default=".env")
-    return parser.parse_args()
+    args = parser.parse_args()
+    logger.debug(f"Parsed env file argument: {args.env_file}")
+    return args
 
 
 def load_config_from_env_file(env_file: str) -> Config:
     """Загружает конфигурацию приложения из указанного файла окружения."""
     if not Path(env_file).exists():
+        logger.error(f"Env file not found: {env_file}")
         raise FileNotFoundError(f"Файл '{env_file}' не найден")
 
-    # Pydantic v2: временно переопределяем env_file через SettingsConfigDict
     class TempConfig(Config):
         model_config = SettingsConfigDict(
             env_file=env_file,
             env_file_encoding="utf-8",
         )
 
-    return TempConfig()
+    cfg = TempConfig()
+    logger.info(f"Loaded config from {env_file}")
+    return cfg
 
 
 def configure_logging(cfg: Config) -> None:
@@ -83,10 +89,13 @@ def configure_logging(cfg: Config) -> None:
         level=numeric_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    logger.info(f"Logging configured. Level: {cfg.LOG_LEVEL}")
 
 
 def create_app(cfg: Config) -> FastAPI:
     """Фабрика приложения FastAPI."""
+    logger.info("Creating FastAPI app...")
+
     db.engine = create_async_engine(
         cfg.DATABASE_DSN,
         future=True,
@@ -118,9 +127,11 @@ def create_app(cfg: Config) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore
+        logger.info("App startup")
         yield
         if db.engine:
             await db.engine.dispose()
+            logger.info("Database engine disposed")
 
     app = FastAPI(
         title=cfg.APP_NAME,
@@ -128,13 +139,16 @@ def create_app(cfg: Config) -> FastAPI:
         debug=cfg.DEBUG,
         lifespan=lifespan,
     )
+    app.add_middleware(LoggingMiddleware)
     app.include_router(api_router)
 
+    logger.info(f"App created with API prefix: {cfg.API_VERSION}")
     return app
 
 
 def run_uvicorn(app: FastAPI, cfg: Config) -> None:
     """Запускает сервер Uvicorn с приложением FastAPI."""
+    logger.info(f"Starting Uvicorn server at {cfg.HOST}:{cfg.PORT}")
     uvicorn.run(
         app,
         host=cfg.HOST,

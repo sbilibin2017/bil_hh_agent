@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI
 
-from backend.app.app import (
+from app.app import (
     Config,
     create_app,
     load_config_from_env_file,
@@ -43,15 +43,22 @@ def test_load_config_file_not_found(tmp_path):
 # --------------------------
 @pytest.fixture
 def dummy_config():
-    return Config()
+    """Return Config with default values, without reading any .env file."""
+
+    class TestConfig(Config):
+        model_config = Config.model_config.copy()
+        model_config["env_file"] = None  # disable .env reading
+
+    return TestConfig()
 
 
 @pytest.fixture
 def patched_db_and_auth(monkeypatch):
     """Patch DB, repositories, and auth service to avoid real connections."""
+
     # Patch db module
-    monkeypatch.setattr("backend.app.app.db", MagicMock())
-    from backend.app.app import db as main_db
+    monkeypatch.setattr("app.app.db", MagicMock())
+    from engines import db as main_db
 
     class DummyDBContext:
         def transaction(self, func):
@@ -62,7 +69,7 @@ def patched_db_and_auth(monkeypatch):
     main_db.session_factory = MagicMock()
 
     # Patch user repository and auth service
-    from backend.app.app import auth_svc, user_repo
+    from app.app import auth_svc, user_repo
 
     user_repo.user_repository = MagicMock()
     auth_svc.auth_service = MagicMock()
@@ -81,8 +88,9 @@ def test_create_app_returns_fastapi(dummy_config, patched_db_and_auth):
 # run_uvicorn
 # --------------------------
 def test_run_uvicorn(monkeypatch, dummy_config):
+    """Test that run_uvicorn calls uvicorn.run with correct arguments."""
     mock_run = MagicMock()
-    monkeypatch.setattr("backend.app.app.uvicorn.run", mock_run)
+    monkeypatch.setattr("app.app.uvicorn.run", mock_run)
     app = MagicMock()
     run_uvicorn(app, dummy_config)
     mock_run.assert_called_once_with(

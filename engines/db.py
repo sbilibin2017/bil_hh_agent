@@ -1,9 +1,12 @@
+import logging
 from contextvars import ContextVar
 from functools import wraps
 from typing import Any, Callable, Concatenate, Coroutine, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from typing_extensions import ParamSpec
+
+logger = logging.getLogger(__name__)
 
 engine: AsyncEngine | None = None
 session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -20,36 +23,30 @@ class DBContext:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self._session_factory = session_factory
         self._current_session: ContextVar[AsyncSession | None] = ContextVar("current_session", default=None)
+        logger.info("DBContext initialized.")
 
     def get_current_session(self) -> AsyncSession | None:
-        """Возвращает текущую сессию (если она установлена)."""
-        return self._current_session.get()
+        session = self._current_session.get()
+        logger.debug(f"Getting current session: {session}")
+        return session
 
     def set_current_session(self, session: AsyncSession | None) -> None:
-        """Устанавливает текущую сессию в контекст."""
         self._current_session.set(session)
+        logger.debug(f"Setting current session: {session}")
 
     async def get_session(self) -> AsyncSession:
-        """
-        Возвращает текущую сессию из контекста,
-        либо создаёт новую, если её нет.
-        """
         session = self.get_current_session()
         if session is None:
             session = self._session_factory()
             self.set_current_session(session)
+            logger.info("New database session created.")
+        else:
+            logger.debug("Using existing database session.")
         return session
 
     def transaction(
         self, func: Callable[Concatenate[AsyncSession, P], Coroutine[Any, Any, R]]
     ) -> Callable[P, Coroutine[Any, Any, R]]:
-        """
-        Декоратор для асинхронных функций (хендлеров/сервисов),
-        запускающий выполнение в транзакции.
-        Если уже есть сессия — используется она.
-        Иначе создаётся новая.
-        """
-
         @wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             session = self.get_current_session()
@@ -57,14 +54,18 @@ class DBContext:
             if session is None:
                 session = await self.get_session()
                 self.set_current_session(session)
+                logger.info(f"Transaction started for {func.__name__}")
 
                 try:
                     result = await func(session, *args, **kwargs)
+                    logger.info(f"Transaction completed for {func.__name__}")
                     return result
                 finally:
                     self.set_current_session(None)
                     await session.close()
+                    logger.info(f"Database session closed for {func.__name__}")
             else:
+                logger.debug(f"Using existing session for {func.__name__}")
                 return await func(session, *args, **kwargs)
 
         return wrapper

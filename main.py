@@ -1,4 +1,4 @@
-from backend.app import app
+from app import app
 
 if __name__ == "__main__":
     args = app.parse_env_file_arg()

@@ -1,14 +1,15 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from fastapi import FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
 
-from backend.routers.auth import create_auth_router
-from backend.schemas.auth import RegisterResponse, LoginResponse
-from backend.services.auth import AuthService
-
+from routers.auth import create_auth_router
+from schemas.auth import LoginResponse, RegisterResponse
+from services.auth import AuthService
 
 # ---------------- Fixtures ---------------- #
+
 
 @pytest.fixture
 def mock_auth_service():
@@ -39,6 +40,7 @@ def app(mock_auth_service, mock_transaction):
 
 # ---------------- Tests ---------------- #
 
+
 def test_register_success(app, mock_auth_service):
     """Successful user registration"""
     import uuid
@@ -55,11 +57,7 @@ def test_register_success(app, mock_auth_service):
         updated_at=now,
     )
 
-    payload = {
-        "username": "testuser",
-        "email": "test@example.com",
-        "password": "password123"
-    }
+    payload = {"username": "testuser", "email": "test@example.com", "password": "password123"}
     client = TestClient(app)
     response = client.post("/auth/register", json=payload)
 
@@ -76,11 +74,7 @@ def test_register_conflict(app, mock_auth_service):
         status_code=status.HTTP_409_CONFLICT, detail="Username exists"
     )
 
-    payload = {
-        "username": "existinguser",
-        "email": "existing@example.com",
-        "password": "password123"
-    }
+    payload = {"username": "existinguser", "email": "existing@example.com", "password": "password123"}
     client = TestClient(app)
     response = client.post("/auth/register", json=payload)
 
@@ -104,9 +98,7 @@ def test_login_success(app, mock_auth_service):
 
 def test_login_not_found(app, mock_auth_service):
     """Login fails if user does not exist"""
-    mock_auth_service.login.side_effect = HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-    )
+    mock_auth_service.login.side_effect = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     payload = {"username": "unknown", "password": "password123"}
     client = TestClient(app)

@@ -1,8 +1,8 @@
-SRC := backend
-EXCLUDE := "tests/*,*/test_*.py,*/test/*"
+SRC := .
+EXCLUDE := "tests/*,*/test_*.py,*/test/*,.venv/*,*.yml,*.yaml"
 
 .PHONY: all
-all: install format lint
+all: install lint
 
 .PHONY: install
 install:
@@ -19,9 +19,9 @@ format:
 
 .PHONY: lint
 lint:
-	@echo "Running flake8 linting (excluding tests)..."
+	@echo "Running flake8 linting (excluding tests, .venv, yaml)..."
 	poetry run flake8 --exclude=$(EXCLUDE) $(SRC)
-	@echo "Running mypy type checking (excluding tests)..."
+	@echo "Running mypy type checking (excluding tests, .venv, yaml)..."
 	poetry run mypy --exclude=$(EXCLUDE) $(SRC)
 
 .PHONY: test
