@@ -1,10 +1,8 @@
-from backend.app.app import App
-
+from backend.app import app
 
 if __name__ == "__main__":
-    application = App()
-    args = application.parse_args()
-    application.parse_envs(args.env_file)
-    application.configure_logging()
-    application.configure_app()
-    application.run_uvicorn()
+    args = app.parse_env_file_arg()
+    cfg = app.load_config_from_env_file(args.env_file)
+    app.configure_logging(cfg)
+    server = app.create_app(cfg)
+    app.run_uvicorn(server, cfg)
