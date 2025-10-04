@@ -2,7 +2,12 @@ SRC := backend
 EXCLUDE := "tests/*,*/test_*.py,*/test/*"
 
 .PHONY: all
-all: format lint
+all: install format lint
+
+.PHONY: install
+install:
+	@echo "Installing dependencies..."
+	poetry install --no-interaction --no-ansi
 
 .PHONY: format
 format:
